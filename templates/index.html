@@ -1,0 +1,151 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小zzh - 个人工作空间</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">✦</div>
+                <div>
+                    <h2>小zzh</h2>
+                    <span>你的个人 AI 助手</span>
+                </div>
+            </div>
+
+            <button class="new-chat" onclick="clearConversation()">
+                ＋ 新对话
+            </button>
+
+            <div class="side-label">工作模式</div>
+
+            <button class="mode active" id="chatMode"
+                    onclick="setMode('chat')">
+                💬 普通对话
+            </button>
+
+            <button class="mode" id="taskMode"
+                    onclick="setMode('task')">
+                ⚙️ 自主任务
+            </button>
+
+            <button class="mode" id="historyMode"
+                    onclick="setMode('history')">
+                📚 历史任务中心
+            </button>
+
+            <div class="sidebar-bottom">
+                <span class="online-dot"></span>
+                小zzh 已就绪
+            </div>
+        </aside>
+
+        <main class="main">
+
+            <header class="topbar">
+                <div>
+                    <h3 id="modeTitle">普通对话</h3>
+                    <p id="modeDescription">和小zzh自由交流</p>
+                </div>
+                <span class="status">● 在线</span>
+            </header>
+
+            <!-- 聊天和自主任务区域 -->
+            <section class="messages" id="messages">
+                <div class="welcome" id="welcome">
+                    <div class="welcome-icon">✦</div>
+                    <h1>你好，我是小zzh</h1>
+                    <p>你的个人 AI 助手。</p>
+                </div>
+            </section>
+
+            <!-- 历史任务中心 -->
+            <section id="historyView" class="history-view hidden">
+
+                <div class="history-header">
+                    <div>
+                        <h2>历史任务中心</h2>
+                        <p>查看和管理小zzh执行过的任务</p>
+                    </div>
+
+                    <button onclick="loadTasks()">
+                        ↻ 刷新任务
+                    </button>
+                </div>
+
+                <div class="history-toolbar">
+
+                    <input
+                        type="text"
+                        id="taskSearch"
+                        placeholder="搜索任务名称……"
+                    >
+
+                    <select id="taskStatus">
+                        <option value="all">全部状态</option>
+                        <option value="pending">待执行</option>
+                        <option value="running">执行中</option>
+                        <option value="completed">已完成</option>
+                        <option value="failed">执行失败</option>
+                        <option value="paused">已暂停</option>
+                    </select>
+
+                    <button onclick="searchTasks()">
+                        搜索
+                    </button>
+
+                </div>
+
+                <div id="taskList" class="task-list">
+                    <p class="empty-state">正在加载历史任务……</p>
+                </div>
+
+                <div id="taskPagination" class="task-pagination"></div>
+
+                <!-- 任务详情 -->
+                <div id="taskDetail" class="task-detail hidden">
+
+                    <div class="detail-header">
+                        <h3>任务详情</h3>
+                        <button onclick="closeTaskDetail()">
+                            ✕ 关闭
+                        </button>
+                    </div>
+
+                    <div id="taskDetailContent"></div>
+
+                </div>
+
+            </section>
+
+            <!-- 输入区域 -->
+            <footer class="composer" id="composer">
+                <div class="input-wrap">
+                    <textarea
+                        id="messageInput"
+                        placeholder="给小zzh发送消息……"
+                        rows="1"
+                    ></textarea>
+
+                    <button id="sendButton" onclick="sendMessage()">
+                        发送 ↑
+                    </button>
+                </div>
+
+                <p class="hint" id="inputHint">
+                    Enter 发送 · Shift + Enter 换行
+                </p>
+            </footer>
+
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
