@@ -1,0 +1,11 @@
+{
+    "read_file": "allow",
+    "web_search": "allow",
+    "analyze_csv": "allow",
+    "write_file": "confirm",
+    "send_email": "confirm",
+    "update_customer": "confirm",
+    "delete_file": "deny",
+    "execute_command": "deny",
+    "make_payment": "deny"
+}
