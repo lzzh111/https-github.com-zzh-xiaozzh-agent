@@ -21,9 +21,19 @@ def create_task_plan(user_request: str) -> dict:
 4. 只能使用以下工具：
    - web_search：网页搜索
    - read_file：读取文件
-5. 不要声称已经执行任务。
-6. 不要生成危险、违法或未经用户授权的操作。
-7. 只返回合法 JSON，不要使用 Markdown 代码块。
+   - write_file：创建或写入文件
+
+5. 如果用户要求创建或写入文件，必须选择 write_file。
+
+6. 如果使用 write_file，必须在步骤描述中明确包含：
+   - file_path：用户指定的完整目标文件路径
+   - content：用户要求写入的完整内容
+   - overwrite：是否允许覆盖，默认 false
+
+7. 不得擅自编造文件路径或文件内容。
+8. 不要声称已经执行任务。
+9. 不要生成危险、违法或未经用户授权的操作。
+10. 只返回合法 JSON，不要使用 Markdown 代码块。
 
 返回格式：
 {

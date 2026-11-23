@@ -15,8 +15,6 @@ from autonomy.task_planner import create_task_plan
 from tools import TOOLS
 from tools.tool_executor import execute_tool
 
-from permissions.permission_manager import permission_manager
-
 
 def notify_progress(callback, event):
     """安全地向网页发送进度事件。"""
@@ -27,7 +25,7 @@ def notify_progress(callback, event):
             print("[小zzh] 进度通知失败：", e)
 
 
-def generate_tool_arguments(step, previous_results):
+def generate_tool_arguments(step, previous_results, user_request):
     """根据任务步骤，让 AI 生成工具调用参数。"""
 
     tool_name = step["tool"]
@@ -59,6 +57,8 @@ def generate_tool_arguments(step, previous_results):
 工具可用参数：
 {json.dumps(parameters, ensure_ascii=False)}
 
+用户最初的完整需求：
+{user_request}
 当前任务步骤：
 {step["description"]}
 
@@ -114,7 +114,12 @@ def save_task_progress(task_id, plan, status, results=None):
         update_task(task_id, plan, status)
 
 
-def execute_task_plan(plan, task_id=None, progress_callback=None):
+def execute_task_plan(
+    plan,
+    task_id=None,
+    progress_callback=None,
+    user_request=""
+):
     """逐步执行任务，并实时发送进度。"""
 
     if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
@@ -135,7 +140,7 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
 
     total_steps = len(plan["steps"])
 
-    save_task_progress(task_id, plan, "running")
+    save_task_progress(task_id, plan, "running", results)
 
     notify_progress(progress_callback, {
         "type": "task_started",
@@ -169,46 +174,16 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
             if not tool_name:
                 raise ValueError("当前步骤没有指定工具")
 
-            arguments = generate_tool_arguments(step, results)
+            arguments = generate_tool_arguments(
+    step,
+    results,
+    user_request
+)
 
             print("工具参数：", arguments)
 
-            authorization = permission_manager.authorize(
-                tool_name,
-                arguments
-            )
-
-            if not authorization.get("allowed"):
-
-                step["status"] = authorization.get("status", "failed")
-                message = authorization.get("message", "需要权限确认")
-
-                results.append({
-                    "step": step_number,
-                    "success": False,
-                    "status": step["status"],
-                    "message": message,
-                    "attempts": 0
-                })
-
-                save_task_progress(task_id, plan, "paused",result)
-
-                notify_progress(progress_callback, {
-                    "type": "step_paused",
-                    "step": step_number,
-                    "description": description,
-                    "status": "paused",
-                    "message": message
-                })
-
-                return {
-                    "success": False,
-                    "status": "paused",
-                    "task": plan.get("task"),
-                    "results": results
-                }
-
-            final_arguments = authorization.get("arguments", arguments)
+            # 权限检查统一交给 execute_tool
+            final_arguments = arguments
 
             max_attempts = (
                 MAX_RETRIES + 1
@@ -228,54 +203,14 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
                 )
 
                 try:
-                    retry_authorization = permission_manager.authorize(
-                        tool_name,
-                        dict(final_arguments)
-                    )
-
-                    if not retry_authorization.get("allowed"):
-
-                        step["status"] = retry_authorization.get(
-                            "status", "failed"
-                        )
-
-                        message = retry_authorization.get(
-                            "message", "需要权限确认"
-                        )
-
-                        results.append({
-                            "step": step_number,
-                            "success": False,
-                            "status": step["status"],
-                            "message": message,
-                            "attempts": attempt - 1,
-                            "attempt_history": attempt_history
-                        })
-
-                        save_task_progress(task_id, plan, "paused",result)
-
-                        notify_progress(progress_callback, {
-                            "type": "step_paused",
-                            "step": step_number,
-                            "description": description,
-                            "status": "paused",
-                            "message": message
-                        })
-
-                        return {
-                            "success": False,
-                            "status": "paused",
-                            "task": plan.get("task"),
-                            "results": results
-                        }
-
+                    # 工具执行器统一负责权限检查和执行
                     tool_result = execute_tool(
-                        tool_name,
-                        retry_authorization.get(
-                            "arguments",
-                            final_arguments
-                        )
-                    )
+    tool_name,
+    final_arguments,
+    task_id=task_id,
+    step=step_number,
+    progress_callback=progress_callback
+)
 
                     if not isinstance(tool_result, dict):
                         tool_result = {
@@ -283,7 +218,7 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
                             "result": tool_result
                         }
 
-                    if tool_result.get("success", True):
+                    if tool_result.get("success", False):
                         tool_success = True
 
                         attempt_history.append({
@@ -298,6 +233,14 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
                         "error",
                         "工具返回执行失败"
                     )
+
+                    # 权限拒绝或用户取消时，不再重试
+                    if tool_result.get("status") in (
+                        "denied",
+                        "cancelled",
+                        "confirmation_required"
+                    ):
+                        break
 
                 except Exception as e:
                     error_message = str(e)
@@ -329,7 +272,9 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
 
                 results.append(step_result)
 
-                save_task_progress(task_id, plan, "running",result)
+                save_task_progress(
+                    task_id, plan, "running", results
+                )
 
                 notify_progress(progress_callback, {
                     "type": "step_completed",
@@ -348,29 +293,56 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
 
                 step["status"] = "failed"
 
+                failure_status = (
+                    tool_result.get("status", "failed")
+                    if isinstance(tool_result, dict)
+                    else "failed"
+                )
+
                 results.append({
                     "step": step_number,
                     "success": False,
                     "description": description,
                     "tool": tool_name,
+                    "status": failure_status,
                     "result": tool_result,
                     "attempts": len(attempt_history),
                     "attempt_history": attempt_history
                 })
 
-                save_task_progress(task_id, plan, "failed",result)
+                task_status = (
+                    "paused"
+                    if failure_status == "confirmation_required"
+                    else "failed"
+                )
+
+                save_task_progress(
+                    task_id, plan, task_status, results
+                )
 
                 notify_progress(progress_callback, {
-                    "type": "step_failed",
+                    "type": (
+                        "step_paused"
+                        if task_status == "paused"
+                        else "step_failed"
+                    ),
                     "step": step_number,
                     "description": description,
-                    "status": "failed",
+                    "status": task_status,
                     "message": (
                         tool_result.get("error", "工具执行失败")
                         if isinstance(tool_result, dict)
                         else "工具执行失败"
                     )
                 })
+
+                if task_status == "paused":
+                    return {
+                        "success": False,
+                        "status": "paused",
+                        "task": plan.get("task"),
+                        "results": results
+                    }
 
                 break
 
@@ -385,7 +357,9 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
                 "error": str(e)
             })
 
-            save_task_progress(task_id, plan, "failed",result)
+            save_task_progress(
+                task_id, plan, "failed", results
+            )
 
             notify_progress(progress_callback, {
                 "type": "step_failed",
@@ -405,7 +379,9 @@ def execute_task_plan(plan, task_id=None, progress_callback=None):
 
     final_status = "completed" if all_completed else "failed"
 
-    save_task_progress(task_id, plan, final_status)
+    save_task_progress(
+        task_id, plan, final_status, results
+    )
 
     report = {
         "success": all_completed,
@@ -475,10 +451,11 @@ def run_task(user_request: str, progress_callback=None):
     })
 
     execution_report = execute_task_plan(
-        plan,
-        task_id=task_id,
-        progress_callback=progress_callback
-    )
+    plan,
+    task_id=task_id,
+    progress_callback=progress_callback,
+    user_request=user_request
+)
 
     check_report = check_execution_result(
         execution_report,
@@ -494,7 +471,8 @@ def run_task(user_request: str, progress_callback=None):
     else:
         task_status = "failed"
 
-        final_report = {
+    # 无论成功、失败还是暂停，都生成最终报告
+    final_report = {
         "success": check_report.get("success", False),
         "task_id": task_id,
         "task": plan.get("task"),
@@ -502,12 +480,10 @@ def run_task(user_request: str, progress_callback=None):
         "check_report": check_report
     }
 
-    # 将完整执行过程和最终报告写入任务计划
     plan["execution_report"] = execution_report
     plan["check_report"] = check_report
     plan["final_report"] = final_report
 
-    # 最后统一保存完整任务数据
     update_task(task_id, plan, task_status)
 
     notify_progress(progress_callback, {

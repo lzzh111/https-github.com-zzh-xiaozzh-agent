@@ -1,4 +1,7 @@
-
+from autonomy.authorization_manager import (
+    get_pending_authorizations,
+    resolve_authorization
+)
 import threading
 import uuid
 from autonomy.task_executor import run_task
@@ -24,23 +27,25 @@ progress_lock = threading.Lock()
 
 def update_progress(task_id, event):
     """后台任务通过这个函数更新网页进度。"""
+
     with progress_lock:
+        if task_id not in task_progress:
+            return
+
         task_progress[task_id]["events"].append(event)
         task_progress[task_id]["latest"] = event
 
-        if event.get("type") in (
-            "task_finished",
-            "task_error",
-            "report_ready"
-        ):
+        # 只有任务发生错误时，才在这里标记结束。
+        # 正常完成时，由 run_background_task 保存报告后标记结束。
+        if event.get("type") == "task_error":
             task_progress[task_id]["finished"] = True
 
 
 def run_background_task(task_id, user_request):
-    """在线程中执行自主任务，不阻塞网页请求。"""
+    """在线程中执行自主任务，并支持网页授权。"""
 
     try:
-        result = run_task( 
+        result = run_task(
             user_request,
             progress_callback=lambda event: update_progress(
                 task_id, event
@@ -48,8 +53,9 @@ def run_background_task(task_id, user_request):
         )
 
         with progress_lock:
-            task_progress[task_id]["report"] = result
-            task_progress[task_id]["finished"] = True
+            if task_id in task_progress:
+                task_progress[task_id]["report"] = result
+                task_progress[task_id]["finished"] = True
 
     except Exception as e:
         update_progress(task_id, {
@@ -57,6 +63,7 @@ def run_background_task(task_id, user_request):
             "status": "failed",
             "message": str(e)
         })
+
 
 
 @app.route("/")
@@ -283,7 +290,54 @@ def get_task_progress(task_id):
             "finished": task["finished"]
         })
 
+@app.route(
+    "/api/task/<task_id>/authorization/<request_id>",
+    methods=["POST"]
+)
+def handle_task_authorization(task_id, request_id):
+    """接收用户对任务授权请求的决定。"""
 
+    data = request.get_json(silent=True) or {}
+    decision = data.get("decision")
+
+    if decision not in ("approve", "reject"):
+        return jsonify({
+            "success": False,
+            "error": "授权决定无效"
+        }), 400
+
+    # 确认该授权请求确实属于当前任务
+    pending = get_pending_authorizations(task_id)
+
+    matched = any(
+        item["request_id"] == request_id
+        for item in pending
+    )
+
+    if not matched:
+        return jsonify({
+            "success": False,
+            "error": "授权请求不存在、已处理或不属于该任务"
+        }), 404
+
+    approved = decision == "approve"
+
+    success, message = resolve_authorization(
+        request_id,
+        approved
+    )
+
+    if not success:
+        return jsonify({
+            "success": False,
+            "error": message
+        }), 409
+
+    return jsonify({
+        "success": True,
+        "message": message,
+        "decision": decision
+    })
 if __name__ == "__main__":
     init_db()
     init_task_db()

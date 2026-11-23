@@ -10,6 +10,7 @@ def check_execution_result(report, expected_steps=None):
             "success": False,
             "status": "invalid",
             "message": "执行报告格式错误",
+            "completed_steps": [],
             "failed_steps": []
         }
 
@@ -20,11 +21,13 @@ def check_execution_result(report, expected_steps=None):
             "success": False,
             "status": "invalid",
             "message": "执行结果列表格式错误",
+            "completed_steps": [],
             "failed_steps": []
         }
 
     failed_steps = []
     completed_steps = []
+    paused = report.get("status") == "paused"
 
     for item in results:
         if not isinstance(item, dict):
@@ -47,16 +50,31 @@ def check_execution_result(report, expected_steps=None):
                 )
             })
 
-    # 检查是否有步骤没有执行
+    # 检查尚未执行的步骤
     if expected_steps is not None:
-        if len(results) < expected_steps:
-            for number in range(len(results) + 1, expected_steps + 1):
-                failed_steps.append({
-                    "step": number,
-                    "reason": "该步骤尚未执行"
-                })
+        completed_numbers = {
+            item.get("step")
+            for item in results
+            if isinstance(item, dict)
+            and isinstance(item.get("step"), int)
+        }
 
-    if report.get("status") == "paused":
+        for number in range(1, expected_steps + 1):
+            if number not in completed_numbers:
+                if not any(
+                    item.get("step") == number
+                    for item in failed_steps
+                ):
+                    failed_steps.append({
+                        "step": number,
+                        "reason": (
+                            "等待用户授权或任务恢复"
+                            if paused
+                            else "该步骤尚未执行"
+                        )
+                    })
+
+    if paused:
         status = "paused"
         message = "任务因权限或其他原因暂停，需要用户处理"
 
@@ -64,7 +82,13 @@ def check_execution_result(report, expected_steps=None):
         status = "incomplete"
         message = "任务没有全部完成，请检查失败步骤"
 
-    elif report.get("success") is True:
+    elif (
+        report.get("success") is True
+        and (
+            expected_steps is None
+            or len(completed_steps) == expected_steps
+        )
+    ):
         status = "completed"
         message = "所有任务步骤均已成功执行"
 

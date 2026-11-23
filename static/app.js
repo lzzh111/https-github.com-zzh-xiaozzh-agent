@@ -155,6 +155,86 @@ function addLog(target, message) {
     messages.scrollTop = messages.scrollHeight;
 }
 
+function addAuthorizationCard(ui, event) {
+    const card = document.createElement("div");
+    card.className = "task-step authorization-card";
+
+    const title = document.createElement("strong");
+    title.textContent = `🔐 小zzh 请求执行授权（第 ${event.step} 步）`;
+
+    const description = document.createElement("p");
+    description.textContent =
+        `工具：${event.tool_name}`;
+
+    const argumentsView = document.createElement("pre");
+    argumentsView.textContent = formatResult(event.arguments);
+
+    const approveButton = document.createElement("button");
+    approveButton.type = "button";
+    approveButton.textContent = "批准执行";
+
+    const rejectButton = document.createElement("button");
+    rejectButton.type = "button";
+    rejectButton.textContent = "拒绝执行";
+
+    const result = document.createElement("p");
+
+    async function submitDecision(decision) {
+        approveButton.disabled = true;
+        rejectButton.disabled = true;
+        result.textContent = "正在提交授权决定……";
+
+        try {
+            const response = await fetch(
+                `/api/task/${encodeURIComponent(event.task_id)}/authorization/${encodeURIComponent(event.request_id)}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ decision })
+                }
+            );
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || "授权提交失败");
+            }
+
+            result.textContent =
+                decision === "approve"
+                    ? "✓ 已批准，等待小zzh 执行"
+                    : "✕ 已拒绝本次操作";
+
+        } catch (error) {
+            result.textContent = "提交失败：" + error.message;
+            approveButton.disabled = false;
+            rejectButton.disabled = false;
+        }
+    }
+
+    approveButton.addEventListener("click", () => {
+        submitDecision("approve");
+    });
+
+    rejectButton.addEventListener("click", () => {
+        submitDecision("reject");
+    });
+
+    card.append(
+        title,
+        description,
+        argumentsView,
+        approveButton,
+        rejectButton,
+        result
+    );
+
+    ui.steps.appendChild(card);
+    messages.scrollTop = messages.scrollHeight;
+}
+
 
 function addLiveStep(target, event) {
     const item = document.createElement("div");
@@ -233,9 +313,19 @@ async function pollTask(taskId, ui) {
                 const event = events[lastEventCount];
                 lastEventCount++;
 
-                if (event.type === "planning") {
-                    ui.status.textContent = "正在规划任务……";
-                    addLog(ui.log, event.message);
+                if (event.type === "authorization_required") {
+    ui.status.textContent = "等待你的授权";
+
+    addLog(
+        ui.log,
+        `第 ${event.step} 步需要授权：${event.tool_name}`
+    );
+
+    addAuthorizationCard(ui, event);
+
+} else if (event.type === "planning") {
+    ui.status.textContent = "正在规划任务……";
+    addLog(ui.log, event.message);
 
                 } else if (event.type === "plan_created") {
                     ui.status.textContent = "任务计划已生成，准备执行";
