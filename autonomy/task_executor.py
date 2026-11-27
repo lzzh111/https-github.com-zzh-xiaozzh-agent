@@ -9,7 +9,7 @@ from autonomy.task_store import (
 )
 from autonomy.result_checker import check_execution_result
 
-from skill_manager.ai_router import client, MODEL
+from skill_manager.ai_router import client, MODEL, ai_match_skill
 from autonomy.task_planner import create_task_plan
 
 from tools import TOOLS
@@ -25,7 +25,12 @@ def notify_progress(callback, event):
             print("[小zzh] 进度通知失败：", e)
 
 
-def generate_tool_arguments(step, previous_results, user_request):
+def generate_tool_arguments(
+    step,
+    previous_results,
+    user_request,
+    skill_instructions=""
+):
     """根据任务步骤，让 AI 生成工具调用参数。"""
 
     tool_name = step["tool"]
@@ -61,6 +66,8 @@ def generate_tool_arguments(step, previous_results, user_request):
 {user_request}
 当前任务步骤：
 {step["description"]}
+当前匹配的技能指令：
+{skill_instructions if skill_instructions else "当前任务没有匹配到专用技能。"}
 
 之前步骤的执行结果：
 {json.dumps(previous_results, ensure_ascii=False, default=str)}
@@ -118,7 +125,8 @@ def execute_task_plan(
     plan,
     task_id=None,
     progress_callback=None,
-    user_request=""
+    user_request="",
+    skill_instructions=""
 ):
     """逐步执行任务，并实时发送进度。"""
 
@@ -139,7 +147,7 @@ def execute_task_plan(
     }
 
     total_steps = len(plan["steps"])
-
+    
     save_task_progress(task_id, plan, "running", results)
 
     notify_progress(progress_callback, {
@@ -408,6 +416,19 @@ def run_task(user_request: str, progress_callback=None):
     """规划任务、保存任务、执行任务并检查结果。"""
 
     print("\n[小zzh] 正在规划任务...")
+        # 在任务规划之前匹配一次 Skill
+    skill = ai_match_skill(user_request) if user_request.strip() else None
+
+    skill_instructions = (
+        skill.get("instructions", "")
+        if skill
+        else ""
+    )
+
+    if skill:
+        print(f"\n[小zzh] 已匹配技能：{skill['name']}")
+    else:
+        print("\n[小zzh] 当前任务没有匹配到专用技能")
 
     notify_progress(progress_callback, {
         "type": "planning",
@@ -415,7 +436,10 @@ def run_task(user_request: str, progress_callback=None):
         "message": "正在分析需求并规划任务"
     })
 
-    plan_result = create_task_plan(user_request)
+    plan_result = create_task_plan(
+    user_request,
+    skill_instructions=skill_instructions
+)
 
     if not plan_result.get("success"):
         error = plan_result.get("error", "任务规划失败")
@@ -454,7 +478,8 @@ def run_task(user_request: str, progress_callback=None):
     plan,
     task_id=task_id,
     progress_callback=progress_callback,
-    user_request=user_request
+    user_request=user_request,
+    skill_instructions=skill_instructions
 )
 
     check_report = check_execution_result(

@@ -7,5 +7,12 @@
     "update_customer": "confirm",
     "delete_file": "deny",
     "execute_command": "deny",
-    "make_payment": "deny"
+    "make_payment": "deny",
+    "memory_search": "allow",
+    "memory_list": "allow",
+    "memory_list_deleted": "allow",
+    "memory_save": "confirm",
+    "memory_update": "confirm",
+    "memory_delete": "confirm",
+    "memory_restore": "confirm"
 }
